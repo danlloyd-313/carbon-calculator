@@ -1308,6 +1308,8 @@ const GWP_DB = {
   ldpe_film:          { label:"LDPE (film)",            gwp:2.13,  density:920,  cost:1.2,  outlook:['stable','Ample supply, follows ethylene and oil'] },
   corrugated_board:   { label:"Corrugated board",       gwp:0.784, density:700,  cost:0.55, outlook:['stable','Recycled-fibre driven, follows the paper price cycle'] },
   cartonboard:        { label:"Cartonboard (folding carton)", gwp:0.854, density:800, cost:1.0, outlook:['stable','Pulp and energy costs, broadly steady'] },
+  paper:              { label:"Paper (mixed paper and board)", gwp:1.283, density:800, cost:0.9, outlook:['stable','Follows pulp and energy costs, broadly steady'] },
+  pha:                { label:"PHA (PHB / PHBV bioplastic)", gwp:2.5, density:1240, cost:5.0, outlook:['volatile','Small, scaling market with few suppliers'] },
 };
 const MFG_DB = {
   none:               { label:"None / Raw stock",       energy:0    },
@@ -1323,6 +1325,8 @@ const MFG_DB = {
   fdm_3d_print:       { label:"3D Print — FDM",         energy:100  },
   sls_3d_print:       { label:"3D Print — SLS",         energy:150  },
   wire_edm:           { label:"Wire EDM",               energy:14   },
+  blow_moulding:      { label:"Blow Moulding",          energy:1.6  },
+  thermoforming:      { label:"Vacuum Forming / Thermoforming", energy:1.6 },
 };
 // ── VOLUME → MASS HELPERS ────────────────────────────────────────────────────
 // Uses the divergence theorem: signed volume of each tetrahedron from origin
@@ -1703,12 +1707,16 @@ const MATERIAL_PROPS = {
   ldpe_film:          { t:70,  wet:3, food:2, load:2, flame:0 },
   corrugated_board:   { t:70,  wet:1, food:1, load:2, flame:0 },
   cartonboard:        { t:70,  wet:1, food:1, load:1, flame:0 },
+  paper:              { t:90,  wet:1, food:1, load:1, flame:0 },
+  pha:                { t:60,  wet:2, food:1, load:1, flame:0 },
 };
 const MATERIAL_HINTS = {
   ldpe_film:        'This is the resin only. Choose Extrusion as the method to include making the film.',
   corrugated_board: 'This figure already includes converting into the finished pack, so choose “None / Raw stock” as the method.',
   cartonboard:      'This figure already includes converting into the finished pack, so choose “None / Raw stock” as the method.',
   glass:            'Standard glass. Ovenware needs borosilicate, which this does not cover.',
+  paper:            'UK government factor for mixed paper and board. Converting and printing are not included.',
+  pha:              'Published cradle-to-gate figures range from about 1.5 to 4.1 kgCO₂e per kg, depending on feedstock and fermentation. This uses 2.5. Ask your supplier for an EPD. Grades vary a lot: PHB is stiff and brittle, PHBV tougher.',
 };
 const LIKE_FOR_LIKE = [['aluminium_virgin', 'aluminium_recycled'], ['steel_virgin', 'steel_recycled']];
 const R = (heat, water, food, load, flame) => ({ heat, water, food, load, flame });
@@ -3185,7 +3193,7 @@ function pctFmt(v) { return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + '%'; }
 // between them. The manufacturing method itself is held fixed, because methods are rarely like-for-like substitutes.
 const MATERIAL_FAMILIES = [
   ['aluminium_virgin','aluminium_recycled'], ['steel_virgin','steel_recycled'],
-  ['abs','polypropylene','nylon_pa66','polycarbonate','hdpe','pla','pet','ldpe_film'], ['cfrp','gfrp'], ['corrugated_board','cartonboard'],
+  ['abs','polypropylene','nylon_pa66','polycarbonate','hdpe','pla','pha','pet','ldpe_film'], ['cfrp','gfrp'], ['corrugated_board','cartonboard','paper'],
 ];
 const CHOICE_BANDS = [
   { name:'Lots of room',    note:'Most of the available saving is still on the table.', color:'#CB0000' },
@@ -3897,9 +3905,22 @@ function wireElecCard(c) {
     </div>
 
     <div class="src-block">
+      <div class="src-block-sub">Material carbon: packaging and bio-based</div>
+      <div class="src-block-title">Added from published sources</div>
+      <p>Corrugated board <code>0.784</code>: FEFCO, cradle-to-gate, converting included. Cartonboard <code>0.854</code>: Pro Carton 2025 carbon footprint report, cradle to converter's gate. LDPE film <code>2.13</code>: PlasticsEurope eco-profile, resin only. Paper <code>1.283</code>: UK Government GHG Conversion Factors 2025, mixed paper and board, primary production. PHA <code>2.5</code>: roughly the mid-point of the published cradle-to-gate range of about 1.5 to 4.1 <code>kgCO₂e/kg</code> (Kim &amp; Dale 2005, <em>Int J LCA</em>; <em>Green Chemistry</em> 2026). Real PHA values depend on feedstock and fermentation, so ask suppliers for an EPD.</p>
+    </div>
+
+    <div class="src-block">
+      <div class="src-block-sub">Material limits</div>
+      <div class="src-block-title">Indicative suitability ratings</div>
+      <p>The heat, water, food-contact, strength and flame ratings behind the product-type warnings are conservative typical datasheet values, not individually cited. They steer suggestions and flag likely problems. They are not a substitute for confirming a grade with your supplier, and the tool does not check compliance.</p>
+    </div>
+
+    <div class="src-block">
       <div class="src-block-sub">Manufacturing &amp; post-processing energy</div>
       <div class="src-block-title">Ashby's <em>Materials and the Environment</em></div>
       <p>Mike Ashby's reference data (Cambridge Engineering) gives the energy consumed per kg of finished part for each process — injection moulding, CNC machining, die casting, 3D printing, etc. Values are in <code>kWh/kg</code>, multiplied by the grid carbon intensity of the manufacturing location.</p>
+      <p style="margin-top:10px">Blow moulding and vacuum forming (<code>1.6</code>) are indicative: German plastics-industry benchmarks (Flatau et al., IAEE 2017) put blow moulding at <code>0.70</code> and thermoforming at <code>0.71</code> against <code>1.51</code> for injection moulding, and those ratios applied to this tool's injection moulding figure give about <code>1.6</code>. Published site-level ranges run from roughly <code>0.7</code> to <code>2.5</code> <code>kWh/kg</code>.</p>
     </div>
 
     <div class="src-block">
