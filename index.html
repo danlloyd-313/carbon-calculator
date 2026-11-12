@@ -170,6 +170,17 @@
   .ctx-warn { margin-top:9px; padding:7px 10px; border-radius:6px; background:#FDF1E7; border:1px solid #F0D2B8; color:#9A4A12; font-family:'Inter',sans-serif; font-size:10.5px; line-height:1.45; }
   .ctx-skip { display:inline; margin-left:4px; padding:0; border:0; background:none; font:inherit; color:inherit; text-decoration:underline; cursor:pointer; }
   .ctx-warn span { display:block; } .ctx-warn span + span { margin-top:4px; }
+  .elec-switch { grid-column:1/-1; font-family:'Inter',sans-serif; font-size:10.5px; font-weight:300; line-height:1.5; margin:2px 0 10px; }
+  .elec-lines { display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+  .elec-line { border:1px solid var(--border); border-radius:6px; padding:9px 10px 8px; }
+  .elec-line-top { display:flex; gap:6px; align-items:center; }
+  .elec-line-top .inp { flex:1; min-width:0; }
+  .elec-line-rm { border:0; background:none; font-size:17px; line-height:1; cursor:pointer; padding:0 4px; }
+  .elec-line-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin-top:8px; }
+  .elec-line-foot { display:flex; justify-content:space-between; gap:8px; margin-top:6px; font-family:'Inter',sans-serif; font-size:10px; font-weight:300; }
+  .elec-add-btn { align-self:flex-start; border:1px dashed var(--border); background:transparent; color:inherit; font-family:'Inter',sans-serif; font-size:11px; font-weight:300; padding:6px 12px; border-radius:4px; cursor:pointer; }
+  .elec-add-btn:hover { border-color:currentColor; }
+  .elec-link { border:0; background:none; padding:0; font:inherit; color:inherit; text-decoration:underline; cursor:pointer; }
   .ctx-hint { margin-top:7px; font-family:'Inter',sans-serif; font-size:10px; color:var(--muted); line-height:1.45; }
   .sm-ctx { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:14px 4px 0; font-family:'Inter',sans-serif; font-size:12px; color:var(--muted); }
   .sm-ctx strong { color:var(--black); font-weight:600; }
@@ -1487,12 +1498,26 @@ const ELECTRONICS_DB = {
   power_supply:  { label:"Power Supply Unit",               carbon:0.50  },
 };
 
-function calcElecCarbon(c) {
-  const db = ELECTRONICS_DB[c.elec_type];
-  if (!db) return 0;
-  const qty   = Math.max(1, c.elec_qty   || 1);
-  const param = Math.max(0, c.elec_param || db.paramDefault || 1);
+// An electronics part holds a list of components (board, battery, connector…). Older designs held a single type, which becomes line one.
+function elecLines(c) {
+  if (!c || c.type !== 'electronics') return [];
+  if (!Array.isArray(c.elec_lines)) {
+    c.elec_lines = [{ lid:uid(), type:c.elec_type || Object.keys(ELECTRONICS_DB)[0], qty:Math.max(1, c.elec_qty || 1), param:c.elec_param, auto:!!c.elec_auto, manual:!!c.elec_manual }];
+    ['elec_type', 'elec_qty', 'elec_param', 'elec_auto', 'elec_manual'].forEach(k => delete c[k]);
+  }
+  return c.elec_lines;
+}
+function calcElecLine(l) {
+  const db = ELECTRONICS_DB[l.type]; if (!db) return 0;
+  const qty = Math.max(1, l.qty || 1), param = Math.max(0, l.param || db.paramDefault || 1);
   return db.paramFactor != null ? param * db.paramFactor * qty : (db.carbon || 0) * qty;
+}
+function calcElecCarbon(c) { return elecLines(c).reduce((s, l) => s + calcElecLine(l), 0); }
+function elecLabel(c, full) {                                                // short for tables, or every component for the CSV
+  const L = elecLines(c), name = l => (ELECTRONICS_DB[l.type]?.label || 'Electronics') + ((l.qty || 1) > 1 ? ' ×' + l.qty : '');
+  if (full) return L.map(name).join('; ');
+  const first = ELECTRONICS_DB[L[0]?.type]?.label || 'Electronics';
+  return L.length > 1 ? `${first} + ${L.length - 1} more` : first;
 }
 
 // ── Carbon context equivalencies & product benchmarks ─────────────
@@ -2132,12 +2157,13 @@ function modelUpAxis() {
 function flipUpAxis() {
   const cur = modelUpAxis(); if (!cur) return;
   const next = cur === 'z' ? 'y' : 'z', angle = next === 'y' ? Math.PI/2 : -Math.PI/2, seen = new Set();
-  Object.values(meshMap).forEach(({ obj3d }) => {
+  Object.entries(meshMap).forEach(([id, { obj3d }]) => {
+    if (isPlaceholderElec(components.find(x => x.id === id))) return;        // our own boards are drawn flat in this view's axes, not the CAD's
     obj3d.userData.up = next;
     obj3d.traverse(o => { if (o.isMesh && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.rotateX(angle); } });
   });
   try { localStorage.setItem(UP_KEY, next); } catch (_) {}
-  refreshMeshBounds(); fitView(true); syncViewUI();
+  refreshMeshBounds(); replaceElecPlaceholders(); fitView(true); syncViewUI();
 }
 
 // Build actual geometry from occt-import-js mesh data
@@ -2777,6 +2803,7 @@ function renderCards() {
           </div>
           ${ctxCardNote(c)}
         </div>
+        <div class="elec-switch">Not a material part? <button type="button" class="elec-link" data-toelec="${c.id}">Treat as electronics</button></div>
         <div class="trio">
         <div class="field">
           <span class="field-label">Mass (g)
@@ -2816,6 +2843,7 @@ function renderCards() {
   list.querySelectorAll('.reset-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); resetComponent(b.dataset.cid); }));
   list.querySelectorAll('.undo-btn').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); undoReset(b.dataset.cid); }));
     list.querySelectorAll('.ctx-skip').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); toggleCtxSkip(b.dataset.cid, b.dataset.skip || null); }));
+    list.querySelectorAll('.elec-link').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); if (b.dataset.toelec) convertToElectronics(b.dataset.toelec); else if (b.dataset.tomat) revertToMaterial(b.dataset.tomat); else if (b.dataset.autoarea) useModelArea(b.dataset.autoarea, b.dataset.lid); }));
   list.querySelectorAll('.name-inp').forEach(inp => {
     inp.addEventListener('click',   e => e.stopPropagation());
     inp.addEventListener('keydown', e => { e.stopPropagation(); if(e.key==='Enter') inp.blur(); });
@@ -2897,7 +2925,7 @@ function exportCSV() {
   const rows = ['Component,Mass_g,Material,Manufacturing,Location,Material_kgCO2e,Mfg_kgCO2e,Total_kgCO2e,Share_%,Raw_material_GBP_per_unit'];
   components.forEach(c=>{
     const r = results.byId?.[c.id]; if (!r) return;
-    rows.push([esc(c.name), c.mass_g ?? '', esc(GWP_DB[c.material]?.label), esc(MFG_DB[c.mfg]?.label), esc(clean(LOC_DB[c.location||S.loc]?.label)),
+    rows.push([esc(c.name), c.mass_g ?? '', esc(isElecComp(c) ? elecLabel(c, true) : GWP_DB[c.material]?.label), esc(MFG_DB[c.mfg]?.label), esc(clean(LOC_DB[c.location||S.loc]?.label)),
       r.mat.toFixed(4), r.mfg.toFixed(4), r.total.toFixed(4), r.share.toFixed(1), (r.cost||0).toFixed(4)].join(','));
   });
   rows.push(['"Per unit total"','','','','',results.totalMat.toFixed(4),results.totalMfg.toFixed(4),results.total.toFixed(4),'100.0',(results.totalCost||0).toFixed(4)].join(','));
@@ -3266,7 +3294,7 @@ function overviewData() {
   const parts = components.map(c => {
     const isElec = c.type === 'electronics';
     return { c, isElec, x: r.byId?.[c.id] || blank,
-      material: isElec ? (ELECTRONICS_DB[c.elec_type]?.label || 'Electronics') : (GWP_DB[c.material]?.label || '—'),
+      material: isElec ? elecLabel(c) : (GWP_DB[c.material]?.label || '—'),
       method:   isElec ? '—' : (MFG_DB[c.mfg]?.label || '—') };
   }).sort((a, b) => b.x.total - a.x.total);
 
@@ -3727,37 +3755,173 @@ function updateAnalyseUI() {
 analyseUiReady = true; updateAnalyseUI();
 
 // ── ELECTRONICS COMPONENTS ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// ELECTRONICS: drawn to size, placed beside the product, and convertible from a STEP part
+// The scene is in millimetres. A card is drawn as its largest board: a 4:3 rectangle with that area (times its quantity), 1.6 mm
+// thick. With no board it is a small marker, not to scale. A STEP part switched to electronics keeps its own shape.
+// ═══════════════════════════════════════════════════════════════
+const AUTO_BADGE = '<span style="background:var(--red);color:#fff;font-size:7px;padding:1px 4px;border-radius:2px;margin-left:4px;letter-spacing:.06em;vertical-align:middle">AUTO</span>';
+const isPlaceholderElec = c => isElecComp(c) && !c.stepBackup;
+const isBoardType = k => /area/i.test(ELECTRONICS_DB[k]?.paramLabel || '');
+const boardLines = c => elecLines(c).filter(l => isBoardType(l.type));
+const modelLine = c => (c.stepBackup ? boardLines(c)[0] : null) || null;      // the line the modelled board stands for: the first board line
+function elecBoxSize(c) {
+  let best = 0;
+  boardLines(c).forEach(l => { best = Math.max(best, (l.param || ELECTRONICS_DB[l.type].paramDefault || 1) * Math.max(1, l.qty || 1)); });
+  if (best > 0) { const mm2 = Math.max(1, best * 100), w = Math.sqrt(mm2 * 4 / 3); return new THREE.Vector3(w, 1.6, mm2 / w); }   // cm² to mm²
+  return new THREE.Vector3(8, 4, 8);
+}
+function assembledBoundsExcluding(id, ignore) {                               // where the assembled product ends, ignoring one part (and any others named)
+  let any = false; const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  Object.entries(meshMap).forEach(([k, m]) => {
+    if (k === id || (ignore && ignore.includes(k)) || !m.center || !m.bboxSize) return; any = true;
+    ['x', 'y', 'z'].forEach((ax, i) => { mn[i] = Math.min(mn[i], m.center[ax] - m.bboxSize[ax] / 2); mx[i] = Math.max(mx[i], m.center[ax] + m.bboxSize[ax] / 2); });
+  });
+  return any ? { mn, mx } : null;
+}
+function placeElecBeside(c, ignore) {                                         // beside the product, on its floor, clear of every other part
+  const m = meshMap[c.id]; if (!m) return;
+  const size = m.bboxSize, b = assembledBoundsExcluding(c.id, ignore);
+  let x = 0, y = size.y / 2, z = 0;
+  if (b) {
+    const span = Math.max(b.mx[0] - b.mn[0], b.mx[1] - b.mn[1], b.mx[2] - b.mn[2]), gap = Math.max(4, span * 0.04);
+    x = b.mx[0] + gap + size.x / 2; y = b.mn[1] + size.y / 2; z = (b.mn[2] + b.mx[2]) / 2;
+  }
+  m.obj3d.position.set(x, y, z); m.center = m.obj3d.position.clone(); origPositions[c.id] = m.obj3d.position.clone();
+}
+function syncElecMesh(c) {                                                   // redraw a placeholder after its lines change
+  const old = meshMap[c.id]; if (!old || !isPlaceholderElec(c)) return;
+  const size = elecBoxSize(c);
+  // A duplicate design shares its source's 3D objects, so a board is never edited in place: this design gets a fresh mesh of its own.
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), old.obj3d.material.clone());
+  mesh.userData.elecBoard = true;                                            // marks a board this code drew, as opposed to an abstract demo box
+  if (old.obj3d.parent) old.obj3d.parent.remove(old.obj3d);
+  scene.add(mesh);
+  meshMap[c.id] = { obj3d:mesh, center:new THREE.Vector3(), bboxSize:size.clone() };
+  placeElecBeside(c);
+  applyExplode(explodeAmount);
+  if (typeof updateHeatColors === 'function') updateHeatColors(true);
+}
+function replaceElecPlaceholders() {                                         // after the product's bounds change, line the boards up beside it again
+  const P = components.filter(isPlaceholderElec);
+  P.forEach((c, i) => placeElecBeside(c, P.slice(i + 1).map(x => x.id)));     // each one only sees the product and the boards already placed
+  applyExplode(explodeAmount);
+}
+function autoBoardArea(c) {                                                  // from the model's two largest dimensions, in cm²
+  const m = meshMap[c.id]; if (!m || !m.bboxSize) return null;
+  const d = [m.bboxSize.x, m.bboxSize.y, m.bboxSize.z].sort((p, q) => q - p);
+  return Math.max(0.1, Math.round(d[0] * d[1] / 100 * 10) / 10);
+}
+function guessElecType(name) {
+  const n = String(name || '');
+  if (/pcb|board|circuit/i.test(n))               return 'pcb_simple';
+  if (/speaker|driver|buzzer|exciter/i.test(n))   return 'speaker';
+  if (/usb/i.test(n))                             return 'usb_connector';
+  if (/cable|wire|harness|lead|jack/i.test(n))    return 'cable_short';
+  if (/batter|lipo|cell/i.test(n))                return 'lipo';
+  if (/motor/i.test(n))                           return 'motor_dc';
+  if (/display|screen|lcd|oled/i.test(n))         return 'lcd_small';
+  if (/sensor/i.test(n))                          return 'generic_sensor';
+  return 'pcb_simple';
+}
+function makeElecLine(type, param) {
+  const db = ELECTRONICS_DB[type], l = { lid:uid(), type, qty:1, auto:false, manual:false };
+  const p = param != null ? param : db.paramDefault; if (p != null) l.param = p;
+  return l;
+}
+function newLineType(c) {                                                    // a sensible next component that is not already in the card
+  const used = elecLines(c).map(l => l.type);
+  return ['lipo', 'usb_connector', 'cable_short', 'mcu', 'speaker', 'generic_sensor'].find(k => ELECTRONICS_DB[k] && !used.includes(k)) || Object.keys(ELECTRONICS_DB)[0];
+}
+function refreshModelLine(c) {                                              // on a converted part, the first board line stands for the modelled board
+  if (!c.stepBackup) return;
+  const ml = modelLine(c);
+  elecLines(c).forEach(l => { if (l !== ml) l.auto = false; });
+  if (ml && !ml.manual) { const a = autoBoardArea(c); if (a) { ml.param = a; ml.auto = true; } }
+}
+function setElecLineType(c, l, type) {
+  l.type = type; l.auto = false; l.manual = false;
+  const db = ELECTRONICS_DB[type];
+  if (db.paramDefault != null) l.param = db.paramDefault; else delete l.param;   // a new type needs its own parameter, not the old one carried over
+  refreshModelLine(c);
+}
+function addElecLine(id) {
+  const c = components.find(x => x.id === id); if (!c || !isElecComp(c)) return;
+  elecLines(c).push(makeElecLine(newLineType(c))); refreshModelLine(c);
+  syncElecMesh(c); fullRender(); rebuildLabels3D();
+}
+function removeElecLine(id, lid) {
+  const c = components.find(x => x.id === id); if (!c || !isElecComp(c)) return;
+  const L = elecLines(c), i = L.findIndex(l => l.lid === lid); if (L.length < 2 || i < 0) return;
+  L.splice(i, 1); refreshModelLine(c);
+  syncElecMesh(c); fullRender(); rebuildLabels3D();
+}
+function convertToElectronics(id) {                                          // a STEP part that is really a board, cable, speaker…
+  const c = components.find(x => x.id === id); if (!c || isElecComp(c) || !meshMap[id]) return;
+  c.stepBackup = JSON.parse(JSON.stringify(c));                              // everything needed to go back, taken before anything changes
+  Object.keys(c).forEach(k => { if (!['id', 'name', 'stepBackup'].includes(k)) delete c[k]; });
+  const type = guessElecType(c.name), area = isBoardType(type) ? autoBoardArea(c) : null;
+  c.type = 'electronics'; c.eol = 'unknown';
+  const l = makeElecLine(type, area); if (area) l.auto = true;
+  c.elec_lines = [l];
+  selectedId = id; fullRender(); rebuildLabels3D();
+  showToast('success', `${c.name} is now counted as electronics. Your model stays in the 3D view.`);
+}
+function revertToMaterial(id) {
+  const c = components.find(x => x.id === id); if (!c || !c.stepBackup) return;
+  const back = c.stepBackup, name = c.name;
+  Object.keys(c).forEach(k => delete c[k]); Object.assign(c, back); c.name = name;
+  fullRender(); rebuildLabels3D();
+}
+function useModelArea(id, lid) {
+  const c = components.find(x => x.id === id); if (!c || !c.stepBackup) return;
+  const l = elecLines(c).find(x => x.lid === lid), a = autoBoardArea(c);
+  if (l && a && modelLine(c) === l) { l.param = a; l.auto = true; l.manual = false; }
+  fullRender();
+}
+function elecNote(c, sel) {
+  const wrap = h => `<div class="elec-switch" style="color:${sel ? '#888' : 'var(--muted)'}">${h}</div>`;
+  if (c.stepBackup) return wrap('Using your own model for the 3D shape. <button type="button" class="elec-link" data-tomat="' + c.id + '">Back to a material part</button>');
+  const B = boardLines(c);
+  if (!B.length) return wrap('Shown as a small marker, not to scale.');
+  return wrap('Drawn to scale beside the product: a 4:3 board with ' + (B.length > 1 ? 'the largest board’s area' : 'this area') + ' (times its quantity), 1.6 mm thick.');
+}
+
 function addElectronicsComp() {
   const id = uid();
-  const first = Object.keys(ELECTRONICS_DB)[0];
-  const db = ELECTRONICS_DB[first];
-  components.push({
-    id, type:'electronics', name:'Electronics',
-    elec_type: first,
-    elec_qty:  1,
-    elec_param: db.paramDefault || 1,
-    eol: 'unknown',
-  });
-  // Add a placeholder box in the 3D scene
-  const geo  = new THREE.BoxGeometry(1.5, 0.3, 2);
-  const mat3 = new THREE.MeshStandardMaterial({ color:0x4A6FA5, roughness:.85, metalness:0 });
-  const mesh = new THREE.Mesh(geo, mat3);
-  mesh.position.set(Math.random()*6-3, 0.15, Math.random()*6-3);
+  const comp = { id, type:'electronics', name:'Electronics', elec_lines:[makeElecLine(Object.keys(ELECTRONICS_DB)[0])], eol:'unknown' };
+  components.push(comp);
+  const size = elecBoxSize(comp);                                            // drawn at the real board size
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color:0x4A6FA5, roughness:.85, metalness:0 }));
+  mesh.userData.elecBoard = true;
   scene.add(mesh);
-  meshMap[id] = { obj3d:mesh, center:mesh.position.clone(), bboxSize:new THREE.Vector3(1.5, 0.3, 2) };
-  origPositions[id] = mesh.position.clone();
+  meshMap[id] = { obj3d:mesh, center:new THREE.Vector3(), bboxSize:size.clone() };
+  placeElecBeside(comp);
+  applyExplode(explodeAmount);
   fullRender();
-  // Select new card
   selectedId = id; renderCards(); rebuildLabels3D();
+  fitView(true);
 }
 
 function mkElecCard(c, r) {
-  const sel  = selectedId === c.id;
-  const db   = ELECTRONICS_DB[c.elec_type] || {};
-  const hasParam = db.paramFactor != null;
-  const elecOpts = Object.entries(ELECTRONICS_DB).map(([k,v]) =>
-    `<option value="${k}" ${k===c.elec_type?'selected':''}>${v.label}</option>`).join('');
-
+  const sel = selectedId === c.id, L = elecLines(c), ml = modelLine(c);
+  const inpSty = sel ? 'background:#161616;color:#F0EBE8;border-bottom-color:#2A2A2A;' : '', mu = sel ? '#666' : 'var(--muted)';
+  const lab = t => `<span class="field-label" style="${sel ? 'color:#666' : ''}">${t}</span>`;
+  const opts = cur => Object.entries(ELECTRONICS_DB).map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${v.label}</option>`).join('');
+  const lineHTML = l => {
+    const db = ELECTRONICS_DB[l.type] || {}, hasParam = db.paramFactor != null, isModel = ml === l, auto = isModel && l.auto && !l.manual;
+    return `<div class="elec-line" data-lid="${l.lid}" style="${sel ? 'border-color:#2A2A2A' : ''}">
+      <div class="elec-line-top">
+        <select class="inp elec-type-sel" data-cid="${c.id}" data-lid="${l.lid}" style="${inpSty}">${opts(l.type)}</select>
+        ${L.length > 1 ? `<button type="button" class="elec-line-rm" data-cid="${c.id}" data-lid="${l.lid}" title="Remove this component" style="color:${mu}">×</button>` : ''}
+      </div>
+      <div class="elec-line-fields">
+        <div class="field">${lab('Quantity')}<input type="number" min="1" class="inp elec-qty-inp" data-cid="${c.id}" data-lid="${l.lid}" value="${l.qty || 1}" style="${inpSty}"></div>
+        ${hasParam ? `<div class="field">${lab((db.paramLabel || 'Parameter') + (auto ? AUTO_BADGE : ''))}<input type="number" min="0" class="inp elec-param-inp" data-cid="${c.id}" data-lid="${l.lid}" value="${l.param || db.paramDefault || 1}" style="${inpSty}"></div>` : '<div class="field"></div>'}
+      </div>
+      <div class="elec-line-foot" style="color:${mu}"><span>${isModel ? (l.manual ? `Typed by hand. <button type="button" class="elec-link" data-autoarea="${c.id}" data-lid="${l.lid}">Use model size</button>` : l.auto ? 'Measured from your model.' : '') : ''}</span><span>${calcElecLine(l).toFixed(3)} kgCO₂e</span></div>
+    </div>`;
+  };
   return `<div class="card ${sel?'card-selected':''}" data-cid="${c.id}" style="${sel?'background:var(--black);color:#F0EBE8;border-color:var(--black);':''}">
     <div class="card-header">
       <div class="card-dot" style="background:#4A6FA5;border-radius:2px;box-shadow:0 0 7px #4A6FA544"></div>
@@ -3767,24 +3931,11 @@ function mkElecCard(c, r) {
       ${r?`<span style="font-size:11px;color:${sel?'#888':'var(--muted)'};font-weight:300">${r.share.toFixed(1)}%</span>`:''}
       <button class="rm-btn" data-cid="${c.id}" onclick="event.stopPropagation()">×</button>
     </div>
-    <div class="inputs-grid" onclick="event.stopPropagation()" style="margin-bottom:14px">
-      <div class="field full">
-        <span class="field-label" style="${sel?'color:#666':''}">Component type</span>
-        <select class="inp elec-type-sel" data-cid="${c.id}" style="${sel?'background:#161616;color:#F0EBE8;border-bottom-color:#2A2A2A;':''}">
-          ${elecOpts}
-        </select>
-      </div>
-      <div class="field">
-        <span class="field-label" style="${sel?'color:#666':''}">Quantity</span>
-        <input type="number" min="1" class="inp elec-qty-inp" data-cid="${c.id}" value="${c.elec_qty||1}"
-          style="${sel?'background:#161616;color:#F0EBE8;border-bottom-color:#2A2A2A;':''}">
-      </div>
-      ${hasParam?`<div class="field">
-        <span class="field-label" style="${sel?'color:#666':''}">${db.paramLabel||'Parameter'}</span>
-        <input type="number" min="0" class="inp elec-param-inp" data-cid="${c.id}" value="${c.elec_param||db.paramDefault||1}"
-          style="${sel?'background:#161616;color:#F0EBE8;border-bottom-color:#2A2A2A;':''}">
-      </div>`:'<div class="field"></div>'}
+    <div class="elec-lines" onclick="event.stopPropagation()">
+      ${L.map(lineHTML).join('')}
+      <button type="button" class="elec-add-btn" data-cid="${c.id}" style="${sel ? 'border-color:#333;color:#F0EBE8' : ''}">+ Add component</button>
     </div>
+    ${elecNote(c, sel)}
     ${r&&r.total>0?`<div class="card-results" style="${sel?'border-top-color:#1E1E1E':''}">
       <div class="result-main">
         <span style="font-family:'DM Sans',sans-serif;font-weight:700;font-size:16px;color:var(--red);letter-spacing:-.02em">${r.total.toFixed(3)}<span style="font-size:10px;font-weight:300;color:${sel?'#555':'var(--muted)'};margin-left:3px;font-family:'Inter',sans-serif">kgCO₂e</span></span>
@@ -3797,12 +3948,14 @@ function mkElecCard(c, r) {
 
 // Hook electronics event wiring into the existing wiring loop
 function wireElecCard(c) {
-  const typeSel  = document.getElementById ? document.querySelector(`[data-cid="${c.id}"].elec-type-sel`) : null;
-  const qtyInp   = document.querySelector ? document.querySelector(`input.elec-qty-inp[data-cid="${c.id}"]`) : null;
-  const paramInp = document.querySelector ? document.querySelector(`input.elec-param-inp[data-cid="${c.id}"]`) : null;
-  if (typeSel)  typeSel.addEventListener('change', e => { e.stopPropagation(); c.elec_type=e.target.value; const db=ELECTRONICS_DB[c.elec_type]; if(db.paramDefault&&paramInp) paramInp.value=db.paramDefault; fullRender(); });
-  if (qtyInp)   qtyInp.addEventListener('change', e => { e.stopPropagation(); c.elec_qty=Math.max(1,+e.target.value); fullRender(); });
-  if (paramInp) paramInp.addEventListener('change', e => { e.stopPropagation(); c.elec_param=Math.max(0,+e.target.value); fullRender(); });
+  const el = document.querySelector(`.card[data-cid="${c.id}"]`); if (!el) return;
+  const lineOf = node => elecLines(c).find(l => l.lid === node.dataset.lid);
+  const redraw = () => { syncElecMesh(c); fullRender(); rebuildLabels3D(); };
+  el.querySelectorAll('.elec-type-sel').forEach(n => n.addEventListener('change', e => { e.stopPropagation(); const l = lineOf(n); if (l) { setElecLineType(c, l, e.target.value); redraw(); } }));
+  el.querySelectorAll('.elec-qty-inp').forEach(n => n.addEventListener('change', e => { e.stopPropagation(); const l = lineOf(n); if (l) { l.qty = Math.max(1, +e.target.value); redraw(); } }));
+  el.querySelectorAll('.elec-param-inp').forEach(n => n.addEventListener('change', e => { e.stopPropagation(); const l = lineOf(n); if (l) { l.param = Math.max(0, +e.target.value); l.auto = false; l.manual = true; redraw(); } }));
+  el.querySelectorAll('.elec-line-rm').forEach(n => n.addEventListener('click', e => { e.stopPropagation(); removeElecLine(c.id, n.dataset.lid); }));
+  el.querySelectorAll('.elec-add-btn').forEach(n => n.addEventListener('click', e => { e.stopPropagation(); addElecLine(c.id); }));
 }
 
 </script>
