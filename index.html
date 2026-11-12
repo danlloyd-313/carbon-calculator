@@ -112,14 +112,14 @@
   /* Project settings pill + popover */
   #proj-tabs-wrap { display:flex; align-items:flex-end; gap:8px; }
   #proj-tabs { flex:1; min-width:0; }
-  #settings-btn {
+  #settings-btn, #save-btn {
     flex-shrink:0; margin-bottom:6px; display:flex; align-items:center; gap:6px;
     padding:4px 11px; border:1.5px solid var(--black); border-radius:100px;
     background:transparent; color:var(--black); cursor:pointer; white-space:nowrap;
     font-family:'Inter',sans-serif; font-size:10px; font-weight:400; letter-spacing:.02em;
     transition:background .15s, color .15s;
   }
-  #settings-btn:hover, #settings-btn.open { background:var(--black); color:#fff; }
+  #settings-btn:hover, #settings-btn.open, #save-btn:hover { background:var(--black); color:#fff; }
   #settings-btn .sb-qty { font-weight:300; opacity:.7; }
   #settings-pop {
     display:none; position:fixed; z-index:60; width:372px;
@@ -171,6 +171,8 @@
   .ctx-skip { display:inline; margin-left:4px; padding:0; border:0; background:none; font:inherit; color:inherit; text-decoration:underline; cursor:pointer; }
   .ctx-warn span { display:block; } .ctx-warn span + span { margin-top:4px; }
   .elec-switch { grid-column:1/-1; font-family:'Inter',sans-serif; font-size:10.5px; font-weight:300; line-height:1.5; margin:2px 0 10px; }
+  .sv-row { display:flex; gap:8px; margin:10px 0 0; }
+  .sv-pill { padding:6px 14px; font-size:11px; }
   .elec-lines { display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
   .elec-line { border:1px solid var(--border); border-radius:6px; padding:9px 10px 8px; }
   .elec-line-top { display:flex; gap:6px; align-items:center; }
@@ -963,6 +965,14 @@
     <div class="sp-sec">Raw material cost</div>
     <div class="sp-readout" id="sp-exposure"></div>
     <div class="sp-note" id="sp-basis" style="margin-top:8px"></div>
+    <div class="sp-sec">Saving</div>
+    <div class="sp-note" id="sv-status">Your designs save automatically on this device. Nothing is uploaded.</div>
+    <div class="sv-row">
+      <button type="button" class="ov-pill sv-pill" id="sv-save">Save to file</button>
+      <button type="button" class="ov-pill sv-pill" id="sv-open">Open file…</button>
+    </div>
+    <input type="file" id="sv-file" accept=".morrama,.json,application/json" style="display:none">
+    <div class="sp-note" style="margin-top:8px">A file keeps every design and its 3D model, and can be emailed. Auto-save only works in this browser on this device. <button type="button" class="ov-link" id="sv-clear" style="font-size:10px">Clear saved data on this device</button></div>
   </div>
 
   <!-- MAIN -->
@@ -1020,6 +1030,7 @@
       <!-- Project tabs -->
       <div id="proj-tabs-wrap">
         <div id="proj-tabs"></div>
+        <button id="save-btn" type="button" title="Save everything to a file (Ctrl+S). Your work also saves automatically on this device."><span>Save</span></button>
         <button id="settings-btn" type="button" title="Order quantity, lifespan and defaults that apply to every part in this project"><span>Global Settings</span><span class="sb-qty" id="sb-qty"></span></button>
       </div>
 
@@ -1030,7 +1041,7 @@
       <div id="add-actions" style="display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--white)">
         <label style="position:relative;overflow:hidden;flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 0;border:1px dashed var(--border);border-radius:4px;cursor:pointer;font-family:'Inter',sans-serif;font-size:11px;font-weight:300;color:var(--muted);background:transparent;transition:all .15s" onmouseover="this.style.borderColor='var(--black)';this.style.color='var(--black)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
           ＋ Import STEP
-          <input id="file-inp" type="file" accept=".step,.stp,.obj,.glb,.gltf,.stl"
+          <input id="file-inp" type="file" accept=".step,.stp,.morrama,.obj,.glb,.gltf,.stl"
             style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
         </label>
         <button onclick="addElectronicsComp()" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 0;border:1px dashed var(--border);border-radius:4px;cursor:pointer;font-family:'Inter',sans-serif;font-size:11px;font-weight:300;color:var(--muted);background:transparent;transition:all .15s" onmouseover="this.style.borderColor='var(--black)';this.style.color='var(--black)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
@@ -1042,7 +1053,8 @@
       <div id="empty">
         <div class="ei">📂</div>
         <div class="et">Drop a STEP or GLB file</div>
-        <div class="es">or use Import in the header above</div>
+        <div class="es">or use + Import STEP above</div>
+        <div class="es" style="margin-top:14px"><button type="button" class="ov-link" id="demo-link">Try the demo model instead</button></div>
       </div>
 
       <div id="comp-list"></div>
@@ -1139,6 +1151,7 @@ function addProject(duplicate) {
     settings: duplicate ? copySettings(projSettings(srcProject)) : defaultSettings(),
   };
   projects.push(newP);
+  if (duplicate && projectSources[srcProject.id]) projectSources[newP.id] = projectSources[srcProject.id];
 
   // Hide current project's meshes
   Object.values(meshMap).forEach(({obj3d}) => { if(obj3d.parent) scene.remove(obj3d); });
@@ -1187,7 +1200,7 @@ function deleteProject(idx) {
     const st = projectMeshStates[pid];
     if (st) Object.values(st.meshMap||{}).forEach(({obj3d}) => { if(obj3d.parent) scene.remove(obj3d); });
   }
-  delete projectMeshStates[pid];
+  delete projectMeshStates[pid]; delete projectSources[pid];
   projects.splice(idx, 1);
 
   if (!wasActive) {                         // a tab that isn't on screen: stay exactly where we are
@@ -1321,6 +1334,12 @@ const GWP_DB = {
   cartonboard:        { label:"Cartonboard (folding carton)", gwp:0.854, density:800, cost:1.0, outlook:['stable','Pulp and energy costs, broadly steady'] },
   paper:              { label:"Paper (mixed paper and board)", gwp:1.283, density:800, cost:0.9, outlook:['stable','Follows pulp and energy costs, broadly steady'] },
   pha:                { label:"PHA (PHB / PHBV bioplastic)", gwp:2.5, density:1240, cost:5.0, outlook:['volatile','Small, scaling market with few suppliers'] },
+  hdpe_recycled:      { label:"HDPE (recycled)",        gwp:1.41,  density:960,  cost:1.0,  outlook:['volatile','Recycled pellet prices swing with the supply of clean bales'] },
+  polypropylene_recycled: { label:"Polypropylene (recycled)", gwp:0.82, density:905, cost:1.0, outlook:['volatile','Recycled pellet prices swing with the supply of clean bales'] },
+  ldpe_film_recycled: { label:"LDPE film (recycled)",   gwp:0.79,  density:920,  cost:1.2,  outlook:['volatile','Recycled pellet prices swing with the supply of clean bales'] },
+  copper_recycled:    { label:"Copper (recycled, 100% scrap)", gwp:0.629, density:8960, cost:11.0, outlook:['rising','Priced like virgin copper, with clean scrap in short supply'] },
+  stainless_steel_recycled: { label:"Stainless steel (recycled, ~97% scrap)", gwp:1.6, density:8000, cost:3.2, outlook:['volatile','Nickel and chromium surcharges move month to month'] },
+  silicone:           { label:"Silicone rubber",        gwp:5.79,  density:1150, cost:7.0,  outlook:['volatile','Silicon metal prices swing with Chinese capacity'] },
 };
 const MFG_DB = {
   none:               { label:"None / Raw stock",       energy:0    },
@@ -1734,6 +1753,12 @@ const MATERIAL_PROPS = {
   cartonboard:        { t:70,  wet:1, food:1, load:1, flame:0 },
   paper:              { t:90,  wet:1, food:1, load:1, flame:0 },
   pha:                { t:60,  wet:2, food:1, load:1, flame:0 },
+  hdpe_recycled:      { t:80,  wet:3, food:0, load:1, flame:0 },
+  polypropylene_recycled: { t:100, wet:3, food:0, load:1, flame:1 },
+  ldpe_film_recycled: { t:70,  wet:3, food:0, load:2, flame:0 },
+  copper_recycled:    { t:250, wet:3, food:1, load:2, flame:2 },
+  stainless_steel_recycled: { t:500, wet:3, food:2, load:3, flame:2 },
+  silicone:           { t:200, wet:3, food:2, load:0, flame:1 },
 };
 const MATERIAL_HINTS = {
   ldpe_film:        'This is the resin only. Choose Extrusion as the method to include making the film.',
@@ -1741,9 +1766,15 @@ const MATERIAL_HINTS = {
   cartonboard:      'This figure already includes converting into the finished pack, so choose “None / Raw stock” as the method.',
   glass:            'Standard glass. Ovenware needs borosilicate, which this does not cover.',
   paper:            'UK government factor for mixed paper and board. Converting and printing are not included.',
+  hdpe_recycled:    'Recycled grades can differ in colour and strength, and mechanically recycled polyolefins are rarely approved for food contact. The figure is the virgin one scaled by the UK government recycled-to-virgin ratio. Confirm with your supplier.',
+  polypropylene_recycled: 'Recycled grades can differ in colour and strength, and mechanically recycled polyolefins are rarely approved for food contact. The figure is the virgin one scaled by the UK government recycled-to-virgin ratio. Confirm with your supplier.',
+  ldpe_film_recycled: 'Recycled grades can differ in colour and strength, and mechanically recycled polyolefins are rarely approved for food contact. The figure is the virgin one scaled by the UK government recycled-to-virgin ratio. Confirm with your supplier. Choose Extrusion as the method to include making the film.',
+  copper_recycled:  'A verified 100% scrap-based cathode (Montanwerke Brixlegg). Typical secondary copper ranges from about 0.2 to 1.9 kgCO₂e per kg, so ask for the supplier figure.',
+  stainless_steel_recycled: 'A supplier-reported average at about 97% recycled content (Outokumpu). The global average is about 7 kgCO₂e per kg. Ask for the grade-specific figure.',
+  silicone:         'Published cradle-to-gate figures run from about 5.8 to 7.3 kgCO₂e per kg. There is no recycled silicone yet, as chemical recycling is still at research stage. Choose Injection Moulding for liquid silicone.',
   pha:              'Published cradle-to-gate figures range from about 1.5 to 4.1 kgCO₂e per kg, depending on feedstock and fermentation. This uses 2.5. Ask your supplier for an EPD. Grades vary a lot: PHB is stiff and brittle, PHBV tougher.',
 };
-const LIKE_FOR_LIKE = [['aluminium_virgin', 'aluminium_recycled'], ['steel_virgin', 'steel_recycled']];
+const LIKE_FOR_LIKE = [['aluminium_virgin', 'aluminium_recycled'], ['steel_virgin', 'steel_recycled'], ['copper', 'copper_recycled'], ['stainless_steel', 'stainless_steel_recycled'], ['hdpe', 'hdpe_recycled'], ['polypropylene', 'polypropylene_recycled'], ['ldpe_film', 'ldpe_film_recycled']];
 const R = (heat, water, food, load, flame) => ({ heat, water, food, load, flame });
 const PRODUCT_CATEGORIES = [
   { key:'general', group:'', label:'Something else, no specific requirements', req:R('none','none',false,'light',false) },
@@ -2183,7 +2214,7 @@ function buildOcctGeometry(occtMesh, matrix) {
 }
 
 // Load STEP result into scene, creating LCA components from geometry
-function loadOcctResult(result, filename) {
+function loadOcctResult(result, filename, opts) {
   clearMeshMap();
   components = [];
 
@@ -2234,7 +2265,7 @@ function loadOcctResult(result, filename) {
   const importM = importMatrix(result, nodeComponents, modelUp);
 
   // Create components + 3D groups
-  nodeComponents.forEach(nc => {
+  nodeComponents.forEach((nc, si) => {
     const id = uid();
     const group = new THREE.Group();
     group.userData.up = modelUp;
@@ -2263,7 +2294,7 @@ function loadOcctResult(result, filename) {
         new Uint32Array(om.index.array)
       );
     });
-    components.push({ id, name: nc.name,
+    components.push({ id, srcIdx: si, name: nc.name,
       mass_g: vol_mm3 > 0.001 ? 0 : 100,         // worked out from the geometry once a material is chosen
       mass_auto: vol_mm3 > 0.001,                 // true = calculated from geometry
       volume_mm3: vol_mm3,
@@ -2283,6 +2314,7 @@ function loadOcctResult(result, filename) {
   renderCards();
   rebuildLabels3D();
 
+  if (opts && opts.restore) return;                                          // a restored design shows as it was left: no burst, no welcome toast
   startExplodeIntro();
   showToast('success', `Loaded ${components.length} parts from "${filename}". Choose a material, method, post processing and end of life for each one to bring it to life.`);
 }
@@ -2464,6 +2496,16 @@ function tickIntro(now) {
 // ═══════════════════════════════════════════════════════════════
 // CLICK SELECT via Raycaster
 // ═══════════════════════════════════════════════════════════════
+// A click on a part in the viewer selects it and scrolls the panel so its card is at the top, ready to fill in
+function scrollToCard(id) {
+  const list = document.getElementById('comp-list'), el = list && list.querySelector('.card[data-cid="' + id + '"]'); if (!el) return;
+  const top = Math.max(0, list.scrollTop + (el.getBoundingClientRect().top - list.getBoundingClientRect().top) - 12);
+  if (typeof list.scrollTo === 'function') list.scrollTo({ top, behavior:reducedMotion() ? 'auto' : 'smooth' }); else list.scrollTop = top;
+}
+function selectFromViewer(id) {
+  selectedId = selectedId === id ? null : id; updateSelection(); renderCards();
+  if (selectedId) scrollToCard(selectedId);                                  // clicking again to deselect leaves the panel where it is
+}
 const raycaster = new THREE.Raycaster();
 canvasEl.addEventListener('click', e => {
   if (drag.moved) return;
@@ -2480,7 +2522,7 @@ canvasEl.addEventListener('click', e => {
   if (hits.length) {
     const hitMesh = hits[0].object;
     const found = targets.find(t=>t.mesh===hitMesh);
-    if (found) { selectedId = selectedId===found.id?null:found.id; updateSelection(); renderCards(); }
+    if (found) selectFromViewer(found.id);
   }
 });
 
@@ -2652,6 +2694,8 @@ async function loadFile(file) {
 
   if (ext==='step' || ext==='stp') {
     await loadSTEP(file);
+  } else if (ext==='morrama') {
+    await openProjectFile(file);
   } else if (ext==='glb' || ext==='gltf') {
     showToast('error', 'GLB import: load the file using the Blender plugin or convert to GLB first, then drop here. (GLTFLoader requires a separate module — use STEP files directly.)');
   } else if (ext==='stl') {
@@ -2673,6 +2717,7 @@ async function loadSTEP(file) {
       showToast('error', 'STEP parsing failed — file may be corrupt or unsupported format.'); return;
     }
     loadOcctResult(result, file.name);
+    rememberSource(file.name, buf);                                          // kept so the design can be rebuilt next time
   } catch(e) {
     setLoading(false);
     console.error(e);
@@ -3072,6 +3117,333 @@ viewer.addEventListener('drop', e=>{e.preventDefault();dropOverlay.style.display
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
+// SAVING: auto-save on this device, and save / open as a file
+// A design is rebuilt from its original STEP file (kept alongside it), then each part's data is laid back on by its position in that
+// file, so renamed, deleted and converted parts all come back as they were. Nothing is uploaded. Anything read back, from this
+// browser's store or from a file someone emailed, goes through a whitelist first.
+// ═══════════════════════════════════════════════════════════════
+const APP_ID = 'morrama-carbon-calculator', SAVE_VERSION = 1;
+const projectSources = {};                                                   // design id → { name, bytes (the STEP file), key }
+let restoring = false, autosaveOn = false, autosaveTimer = null, autosaveDirty = false, lastSavedAt = null, savedKeys = new Set();
+const newKey = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const DEMO_KEY = 'morrama-demo-seen', DEMO_URL = './demo/earthmade.mccm';
+const MESH_MAGIC = [0x4D, 0x43, 0x43, 0x4D];                                 // "MCCM": a model already processed by the geometry engine, so it opens without parsing STEP
+const isMeshBlob = u8 => !!u8 && u8.length > 12 && MESH_MAGIC.every((b, i) => u8[i] === b);
+function decodeMeshBlob(u8) {
+  if (!isMeshBlob(u8) || u8[4] !== 1) throw new Error('unknown model format');
+  const jl = new DataView(u8.buffer, u8.byteOffset, u8.byteLength).getUint32(8, true);
+  if (12 + jl > u8.length) throw new Error('the model data is damaged');
+  const jb = u8.subarray(12, 12 + jl); let json;
+  try { json = new TextDecoder().decode(jb); } catch (_) { json = decodeURIComponent(escape(String.fromCharCode.apply(null, jb))); }
+  const head = JSON.parse(json);
+  if (!head || !Array.isArray(head.meshes) || head.meshes.length > 2000) throw new Error('the model data is damaged');
+  let off = 12 + jl; off += (4 - off % 4) % 4;
+  const take = (Ctor, n) => {
+    if (!Number.isInteger(n) || n < 0 || off + 4 * n > u8.length) throw new Error('the model data is damaged');
+    const a = new Ctor(u8.slice(off, off + 4 * n).buffer); off += 4 * n; return a;
+  };
+  return { success:true, root:head.root, meshes:head.meshes.map(m => ({ name:String(m.name || ''), attributes:{ position:{ array:take(Float32Array, m.nPos) }, normal:m.nNor ? { array:take(Float32Array, m.nNor) } : undefined }, index:{ array:take(Uint32Array, m.nIdx) } })) };
+}
+async function parseStepBytes(buf) { if (isMeshBlob(buf)) return decodeMeshBlob(buf); const oc = await getOcct(); return oc.ReadStepFile(buf, null); }
+// The demo: a real product, blank and grey like any import. It is kept as processed geometry (about 1 MB), so it opens in about a second.
+async function loadDemo() {
+  setLoading(true, 'Loading the demo…');
+  try {
+    const res = await fetch(DEMO_URL); if (!res.ok) throw new Error('the demo file wasn’t found');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    loadOcctResult(decodeMeshBlob(bytes), 'Earthmade demo');
+    rememberSource('Earthmade demo', bytes);
+    if (/^Design [A-Z]$/.test(activeProject().name)) { activeProject().name = 'Earthmade demo'; renderProjectTabs(); }
+    try { localStorage.setItem(DEMO_KEY, '1'); } catch (_) {}
+    return true;
+  } catch (e) { console.warn('demo not loaded:', e.message); return false; }
+  finally { setLoading(false); }
+}
+async function maybeLoadDemo() {                                              // only on a first visit: never over someone's work, and never again once they have seen it
+  let seen = false; try { seen = !!localStorage.getItem(DEMO_KEY); } catch (_) {}
+  if (!seen && sessionIsBlank() && typeof fetch === 'function') await loadDemo();
+}
+function rememberSource(name, bytes) { projectSources[activeProject().id] = { name:cleanName(name, 'model.step'), bytes, key:newKey() }; scheduleAutosave(); }
+
+// ── whitelist: only known fields, only known values ──
+function cleanName(s, fallback) { const t = String(s == null ? '' : s).replace(/[<>"'`\u0000-\u001F]/g, '').trim().slice(0, 80); return t || fallback; }
+function num(v, lo, hi, d) { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; }
+const hasKey = (db, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(db, k);
+const dbKey = (db, k, d) => hasKey(db, k) ? k : (d === undefined ? '' : d);
+function cleanLines(arr) {
+  const out = (Array.isArray(arr) ? arr : []).slice(0, 40).map(l => {
+    if (!l || typeof l !== 'object' || !hasKey(ELECTRONICS_DB, l.type)) return null;
+    const o = { lid:uid(), type:l.type, qty:Math.round(num(l.qty, 1, 1e6, 1)), auto:!!l.auto, manual:!!l.manual };
+    if (ELECTRONICS_DB[l.type].paramDefault != null) o.param = num(l.param, 0, 1e7, ELECTRONICS_DB[l.type].paramDefault);
+    return o;
+  }).filter(Boolean);
+  return out.length ? out : [makeElecLine(Object.keys(ELECTRONICS_DB)[0])];
+}
+function cleanComponent(raw, depth) {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = { name:cleanName(raw.name, 'Part') };
+  if (Number.isInteger(raw.srcIdx) && raw.srcIdx >= 0 && raw.srcIdx < 100000) o.srcIdx = raw.srcIdx;
+  if (raw.type === 'electronics') {
+    o.type = 'electronics'; o.elec_lines = cleanLines(raw.elec_lines); o.eol = dbKey(EOL_DB, raw.eol, 'unknown');
+    if (!depth && raw.stepBackup && o.srcIdx != null) { const b = cleanComponent(raw.stepBackup, 1); if (b && b.type !== 'electronics') o.stepBackup = b; }
+    return o;
+  }
+  o.mass_g = num(raw.mass_g, 0, 1e9, 0); o.mass_auto = !!raw.mass_auto;
+  if (Number.isFinite(+raw.volume_mm3)) o.volume_mm3 = num(raw.volume_mm3, 0, 1e15, 0);
+  o.material = dbKey(GWP_DB, raw.material); o.mfg = dbKey(MFG_DB, raw.mfg); o.post_process = dbKey(POST_DB, raw.post_process); o.eol = dbKey(EOL_DB, raw.eol);
+  if (hasKey(LOC_DB, raw.location)) o.location = raw.location;
+  if (hasKey(DEST_DB, raw.destination)) o.destination = raw.destination;
+  if (hasKey(TRANSPORT_DB, raw.transport)) o.transport = raw.transport;
+  if (raw.price_override != null && raw.price_override !== '' && Number.isFinite(+raw.price_override) && +raw.price_override > 0) o.price_override = num(raw.price_override, 0, 1e6, 0);
+  if (Array.isArray(raw.ctxSkip)) { const k = [...new Set(raw.ctxSkip.filter(x => hasKey(KIND_LABEL, x)))]; if (k.length) o.ctxSkip = k; }
+  return o;
+}
+function cleanSettings(raw) {
+  raw = (raw && typeof raw === 'object') ? raw : {}; const r = (raw.req && typeof raw.req === 'object') ? raw.req : {}, d = defaultSettings();
+  return { qty:Math.round(num(raw.qty, 1, 1e9, 1)), loc:dbKey(LOC_DB, raw.loc, d.loc), dest:dbKey(DEST_DB, raw.dest, d.dest), transport:dbKey(TRANSPORT_DB, raw.transport, d.transport),
+    category:(raw.category === '' || hasKey(CATEGORY_BY_KEY, raw.category)) ? raw.category : '',
+    req:{ heat:HEAT_TIERS.some(t => t.key === r.heat) ? r.heat : 'none', water:WATER_TIERS.some(t => t.key === r.water) ? r.water : 'none', food:!!r.food,
+          load:LOAD_TIERS.some(t => t.key === r.load) ? r.load : 'light', flame:!!r.flame } };
+}
+function cleanProject(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  let source = null; const s = raw.source;
+  if (s && typeof s === 'object' && typeof s.name === 'string') {
+    source = { name:cleanName(s.name, 'model.step'), key:(typeof s.key === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(s.key)) ? s.key : newKey() };
+    if (typeof s.data === 'string' && (s.enc === 'base64' || s.enc === 'gzip+base64')) { source.enc = s.enc; source.data = s.data; }
+  }
+  return { name:cleanName(raw.name, 'Design'), lifespan:hasKey(LIFESPAN_DB, raw.lifespan) ? raw.lifespan : 'y1', settings:cleanSettings(raw.settings), up:raw.up === 'y' ? 'y' : 'z', source,
+    components:(Array.isArray(raw.components) ? raw.components : []).slice(0, 400).map(x => cleanComponent(x, 0)).filter(Boolean) };
+}
+function validateSnapshot(raw) {
+  if (!raw || typeof raw !== 'object' || raw.app !== APP_ID) return { ok:false, error:'That file isn’t a Morrama carbon project.' };
+  if (!Number.isInteger(raw.version) || raw.version < 1 || raw.version > SAVE_VERSION) return { ok:false, error:'That project was saved by a newer version of the calculator. Refresh the page and try again.' };
+  const projs = (Array.isArray(raw.projects) ? raw.projects : []).slice(0, 30).map(cleanProject).filter(Boolean);
+  if (!projs.length) return { ok:false, error:'That project file has no designs in it.' };
+  return { ok:true, snap:{ activeIdx:Math.round(num(raw.activeIdx, 0, projs.length - 1, 0)), explode:num(raw.explode, 0, 5, 0), projects:projs } };
+}
+
+// ── what gets saved ──
+function axisOf(p) {
+  const st = p.id === activeProject().id ? { meshMap } : projectMeshStates[p.id];
+  for (const { obj3d } of Object.values((st && st.meshMap) || {})) if (obj3d.userData && obj3d.userData.up) return obj3d.userData.up;
+  return 'z';
+}
+function buildSnapshot() {
+  saveActiveProject();
+  return { app:APP_ID, version:SAVE_VERSION, savedAt:new Date().toISOString(), activeIdx:activeProjectIdx, explode:explodeAmount,
+    projects:projects.map(p => { const s = projectSources[p.id];
+      return { name:p.name, lifespan:p.lifespan || 'y1', settings:copySettings(projSettings(p)), up:axisOf(p), source:s ? { name:s.name, key:s.key } : null, components:JSON.parse(JSON.stringify(p.components)) }; }) };
+}
+
+// ── the browser's own store (IndexedDB) ──
+let _idb = null;
+function idbOpen() {
+  if (_idb) return _idb;
+  _idb = new Promise(res => {
+    try {
+      if (!window.indexedDB) return res(null);
+      const r = window.indexedDB.open('morrama-carbon', 1);
+      r.onupgradeneeded = () => { const d = r.result; ['state', 'files'].forEach(s => { if (!d.objectStoreNames.contains(s)) d.createObjectStore(s); }); };
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null); r.onblocked = () => res(null);
+    } catch (e) { res(null); }
+  });
+  return _idb;
+}
+function idbDo(store, mode, fn) {
+  return idbOpen().then(db => !db ? Promise.reject(new Error('no store')) : new Promise((res, rej) => {
+    try { const tx = db.transaction(store, mode), rq = fn(tx.objectStore(store)); tx.oncomplete = () => res(rq ? rq.result : undefined); tx.onerror = tx.onabort = () => rej(tx.error || new Error('store error')); } catch (e) { rej(e); }
+  }));
+}
+const idbGet = (s, k) => idbDo(s, 'readonly', st => st.get(k));
+const idbPut = (s, k, v) => idbDo(s, 'readwrite', st => st.put(v, k));
+const idbDel = (s, k) => idbDo(s, 'readwrite', st => st.delete(k));
+const idbKeys = s => idbDo(s, 'readonly', st => st.getAllKeys());
+const idbClear = s => idbDo(s, 'readwrite', st => st.clear());
+
+// ── auto-save ──
+function updateSaveStatus(state) {
+  const el = document.getElementById('sv-status'); if (!el) return;
+  const t = lastSavedAt ? lastSavedAt.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }) : '';
+  el.textContent = ({
+    ready:'Your designs save automatically on this device. Nothing is uploaded.',
+    pending:'Saving…',
+    saved:t ? `Auto-saved on this device at ${t}. Nothing is uploaded.` : 'Your last session is saved on this device. Nothing is uploaded.',
+    failed:'Auto-save didn’t work, possibly because the browser’s storage is full. Use Save to file to keep your work.',
+    paused:'Auto-save is paused because your last session couldn’t be fully restored. Your saved data is untouched. Use Save to file, or reload to try again.',
+    unavailable:'Auto-save isn’t available in this browser (private windows often block it). Use Save to file to keep your work.',
+    cleared:'Saved data cleared. Auto-save stays off until you reload the page.',
+  })[state] || '';
+}
+function scheduleAutosave() {
+  if (!autosaveOn || restoring) return;
+  autosaveDirty = true; clearTimeout(autosaveTimer); autosaveTimer = setTimeout(autosaveNow, 900); updateSaveStatus('pending');
+}
+async function autosaveNow() {
+  if (!autosaveOn || restoring) return;
+  clearTimeout(autosaveTimer);
+  try {
+    const snap = buildSnapshot();
+    for (const p of projects) { const s = projectSources[p.id]; if (s && !savedKeys.has(s.key)) { await idbPut('files', s.key, { name:s.name, bytes:s.bytes }); savedKeys.add(s.key); } }
+    await idbPut('state', 'current', snap);
+    const live = new Set(projects.map(p => projectSources[p.id] && projectSources[p.id].key).filter(Boolean));
+    for (const k of await idbKeys('files')) if (!live.has(k)) { await idbDel('files', k); savedKeys.delete(k); }          // copies of designs that are gone
+    autosaveDirty = false; lastSavedAt = new Date(); updateSaveStatus('saved');
+  } catch (e) { console.error(e); updateSaveStatus('failed'); if (!autosaveNow._told) { autosaveNow._told = true; showToast('error', 'Couldn’t auto-save on this device. Use Save to file to keep your work.'); } }
+}
+
+// ── rebuilding designs ──
+const sessionIsBlank = () => projects.length === 1 && components.length === 0;
+function applySavedParts(saved) {                                            // lay saved part data onto the freshly imported parts, by position in the STEP file
+  const bySrc = new Map(components.filter(x => x.srcIdx != null).map(x => [x.srcIdx, x]));
+  const keep = new Set(), plan = [];
+  saved.forEach(sc => {
+    if (sc.srcIdx != null) { const n = bySrc.get(sc.srcIdx); if (n && !keep.has(n)) { keep.add(n); plan.push({ n, sc }); } }
+    else if (sc.type === 'electronics') plan.push({ sc });
+  });
+  components.filter(x => x.srcIdx != null && !keep.has(x)).map(x => x.id).forEach(id => removeComp(id));      // parts that had been deleted
+  components = plan.map(({ n, sc }) => {
+    if (n) {
+      const id = n.id, vol = n.volume_mm3, si = n.srcIdx; Object.keys(n).forEach(k => delete n[k]);
+      Object.assign(n, JSON.parse(JSON.stringify(sc)), { id, srcIdx:si });
+      if (sc.type !== 'electronics') n.volume_mm3 = vol;                    // an electronics part carries no volume, as before
+      if (n.stepBackup) Object.assign(n.stepBackup, { id, volume_mm3:vol, srcIdx:si });
+      return n;
+    }
+    const comp = Object.assign(JSON.parse(JSON.stringify(sc)), { id:uid() }); delete comp.srcIdx; delete comp.stepBackup;
+    attachElecPlaceholder(comp);
+    return comp;
+  });
+}
+async function restoreProjects(snap, getBytes, opts) {
+  opts = opts || {};
+  const reuse = sessionIsBlank(), made = [], failed = [], srcByKey = new Map(), keepUp = preferredUpAxis();
+  restoring = true; setLoading(true, opts.message || 'Restoring your designs…');
+  try {
+    for (let k = 0; k < snap.projects.length; k++) {
+      const sp = snap.projects[k], fresh = !(reuse && k === 0);
+      try {
+        if (fresh) addProject(false);
+        const p = activeProject();
+        p.name = sp.name; p.lifespan = sp.lifespan; p.settings = copySettings(sp.settings);
+        try { localStorage.setItem(UP_KEY, sp.up); } catch (_) {}
+        if (sp.source) {
+          let src = srcByKey.get(sp.source.key);
+          if (!src) { src = { name:sp.source.name, bytes:await getBytes(sp), key:sp.source.key }; srcByKey.set(sp.source.key, src); }
+          setLoading(true, `Rebuilding “${sp.name}”…`);
+          const result = await parseStepBytes(src.bytes);
+          if (!result || !result.success || !result.meshes || !result.meshes.length) throw new Error('the model couldn’t be read');
+          loadOcctResult(result, src.name, { restore:true });
+          projectSources[p.id] = src;
+        } else { components = []; }
+        applySavedParts(sp.components);
+        selectedId = null; fullRender(); rebuildLabels3D(); saveActiveProject();
+        made.push(projects.indexOf(p));
+      } catch (e) {
+        console.error(e); failed.push(`${sp.name} (${e.message})`);
+        if (fresh) { const i = projects.indexOf(activeProject()); if (i > 0 || projects.length > 1) deleteProject(i); }
+        else { components = []; }
+      }
+    }
+    if (made.length) {
+      switchToProject(made[Math.min(snap.activeIdx, made.length - 1)]);
+      setExplodeSlider(snap.explode); applyExplode(explodeAmount); fitView(false);                  // frame the model as it is now laid out
+      try { localStorage.setItem(UP_KEY, modelUpAxis() || keepUp); } catch (_) {}
+    } else { try { localStorage.setItem(UP_KEY, keepUp); } catch (_) {} }
+  } finally { restoring = false; setLoading(false); }
+  renderProjectTabs(); renderComparison(); syncViewUI();
+  return { made:made.length, failed };
+}
+
+// ── save to a file / open a file ──
+function bytesToB64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+function b64ToBytes(b64) { const s = atob(b64), u8 = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i); return u8; }
+async function packBytes(u8) {
+  try {
+    if (typeof CompressionStream === 'function' && typeof Response === 'function' && Blob.prototype.stream) {
+      const z = new Blob([u8]).stream().pipeThrough(new CompressionStream('gzip'));
+      return { enc:'gzip+base64', data:bytesToB64(new Uint8Array(await new Response(z).arrayBuffer())) };
+    }
+  } catch (_) {}
+  return { enc:'base64', data:bytesToB64(u8) };
+}
+async function unpackBytes(src) {
+  const raw = b64ToBytes(src.data);
+  if (src.enc !== 'gzip+base64') return raw;
+  if (typeof DecompressionStream !== 'function') throw new Error('this browser can’t open compressed project files, so try a newer one');
+  return new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+}
+async function saveToFile() {
+  if (projects.every(p => !(p.id === activeProject().id ? components : p.components).length)) { showToast('error', 'There’s nothing to save yet. Import a STEP file or add electronics first.'); return; }
+  const out = JSON.parse(JSON.stringify(buildSnapshot()));
+  for (let i = 0; i < projects.length; i++) { const s = projectSources[projects[i].id]; if (s) Object.assign(out.projects[i].source, await packBytes(s.bytes)); }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(out)], { type:'application/json' })), a = document.createElement('a'), d = new Date();
+  a.href = url; a.download = `Morrama carbon project ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.morrama`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  showToast('success', `Saved ${projects.length} design${projects.length === 1 ? '' : 's'} to a file. Open it any time from Global Settings.`);
+}
+async function openProjectFile(file) {
+  let raw; try { raw = JSON.parse(await file.text()); } catch (e) { showToast('error', 'That file isn’t a Morrama carbon project.'); return; }
+  const v = validateSnapshot(raw); if (!v.ok) { showToast('error', v.error); return; }
+  const blank = sessionIsBlank();
+  const res = await restoreProjects(v.snap, async sp => { if (!sp.source || !sp.source.data) throw new Error('the file has no model data for this design'); return unpackBytes(sp.source); }, { message:'Opening your project…' });
+  if (res.failed.length) showToast('error', `Couldn’t open: ${res.failed.join('; ')}.`);
+  else showToast('success', blank ? `Opened ${res.made} design${res.made === 1 ? '' : 's'} from “${cleanName(file.name, 'file')}”.` : `Opened ${res.made} design${res.made === 1 ? '' : 's'} from “${cleanName(file.name, 'file')}” as new tabs.`);
+  scheduleAutosave();
+}
+
+// ── start-up, and the controls ──
+function showToastAction(type, msg, label, fn) {
+  const t = document.getElementById('toast'); t.textContent = msg + ' ';
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'ov-link'; b.textContent = label; b.style.cssText = 'color:inherit;margin-left:6px;font-size:11px';
+  b.addEventListener('click', () => { t.style.display = 'none'; fn(); }); t.appendChild(b);
+  t.style.background = type === 'success' ? '#112A18' : '#2D1414'; t.style.color = type === 'success' ? '#3FB950' : '#F85149'; t.style.display = 'block';
+  clearTimeout(showToastAction._t); showToastAction._t = setTimeout(() => { t.style.display = 'none'; }, 12000);
+}
+async function clearSavedData(thenReload) {
+  autosaveOn = false; clearTimeout(autosaveTimer);
+  try { await idbClear('state'); await idbClear('files'); } catch (_) {}
+  savedKeys = new Set(); updateSaveStatus('cleared');
+  if (thenReload) { try { location.reload(); } catch (_) {} } else showToast('success', 'Saved data cleared from this device. What’s on screen stays until you close the tab.');
+}
+async function initPersistence() {
+  const db = await idbOpen();
+  if (!db) { updateSaveStatus('unavailable'); await maybeLoadDemo(); return; }
+  let snap = null; try { snap = await idbGet('state', 'current'); } catch (_) {}
+  const v = snap ? validateSnapshot(snap) : { ok:false };
+  if (snap && !v.ok && Number.isInteger(snap.version) && snap.version > SAVE_VERSION) {                  // saved by a newer version of the calculator: leave it alone
+    autosaveOn = false; updateSaveStatus('paused');
+    showToast('error', 'Your saved session was made by a newer version of the calculator. Refresh the page to get it. Auto-save is paused so nothing is overwritten.'); return;
+  }
+  if (!v.ok || !v.snap.projects.some(p => p.components.length)) { autosaveOn = true; updateSaveStatus('ready'); await maybeLoadDemo(); return; }
+  const res = await restoreProjects(v.snap, async sp => {
+    const f = await idbGet('files', sp.source.key); if (!f || !f.bytes) throw new Error('its saved model is missing');
+    return f.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(f.bytes);
+  }, { message:'Restoring your last session…' });
+  if (res.failed.length) {
+    autosaveOn = false; updateSaveStatus('paused');
+    showToast('error', `Couldn’t restore ${res.failed.join('; ')}. Auto-save is paused so nothing is overwritten.`);
+  } else if (res.made) {
+    autosaveOn = true; savedKeys = new Set(Object.values(projectSources).map(s => s.key));
+    const when = new Date(snap.savedAt); lastSavedAt = isNaN(when) ? null : when; updateSaveStatus('saved');
+    showToastAction('success', `Welcome back: restored ${res.made} design${res.made === 1 ? '' : 's'}.`, 'Start fresh', () => clearSavedData(true));
+  } else { autosaveOn = true; updateSaveStatus('ready'); }
+}
+(function wireSaving() {
+  const $ = id => document.getElementById(id);
+  $('save-btn').addEventListener('click', saveToFile); $('sv-save').addEventListener('click', saveToFile);
+  $('explode-slider').addEventListener('input', () => scheduleAutosave());                  // where the explode slider was left is saved too
+  $('demo-link').addEventListener('click', () => loadDemo());
+  $('sv-open').addEventListener('click', () => $('sv-file').click());
+  $('sv-file').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) openProjectFile(f); });
+  $('sv-clear').addEventListener('click', () => { if (confirm('Clear the saved copy on this device? What is on screen stays until you close the tab.')) clearSavedData(false); });
+  document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 's') { e.preventDefault(); saveToFile(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && autosaveDirty && autosaveOn) autosaveNow(); });
+  window.addEventListener('pagehide', () => { if (autosaveDirty && autosaveOn) autosaveNow(); });
+  ['fullRender', 'renderProjectTabs', 'flipUpAxis'].forEach(n => { const f = window[n]; if (typeof f === 'function') window[n] = function () { const r = f.apply(this, arguments); scheduleAutosave(); return r; }; });
+})();
+
+// ═══════════════════════════════════════════════════════════════
 function setLoading(on, msg='Loading…') {
   const ol=document.getElementById('loading-overlay'); ol.style.display=on?'flex':'none';
   if(msg) document.getElementById('loading-msg').textContent=msg;
@@ -3221,7 +3593,9 @@ function pctFmt(v) { return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + '%'; }
 // between them. The manufacturing method itself is held fixed, because methods are rarely like-for-like substitutes.
 const MATERIAL_FAMILIES = [
   ['aluminium_virgin','aluminium_recycled'], ['steel_virgin','steel_recycled'],
-  ['abs','polypropylene','nylon_pa66','polycarbonate','hdpe','pla','pha','pet','ldpe_film'], ['cfrp','gfrp'], ['corrugated_board','cartonboard','paper'],
+  ['abs','polypropylene','nylon_pa66','polycarbonate','hdpe','pla','pha','pet','hdpe_recycled','polypropylene_recycled'], ['ldpe_film','ldpe_film_recycled'],   // film grades only swap with other film
+  ['cfrp','gfrp'], ['corrugated_board','cartonboard','paper'],
+  ['copper','copper_recycled'], ['stainless_steel','stainless_steel_recycled'], ['rubber_synthetic','silicone'],
 ];
 const CHOICE_BANDS = [
   { name:'Lots of room',    note:'Most of the available saving is still on the table.', color:'#CB0000' },
@@ -3859,7 +4233,7 @@ function removeElecLine(id, lid) {
 function convertToElectronics(id) {                                          // a STEP part that is really a board, cable, speaker…
   const c = components.find(x => x.id === id); if (!c || isElecComp(c) || !meshMap[id]) return;
   c.stepBackup = JSON.parse(JSON.stringify(c));                              // everything needed to go back, taken before anything changes
-  Object.keys(c).forEach(k => { if (!['id', 'name', 'stepBackup'].includes(k)) delete c[k]; });
+  Object.keys(c).forEach(k => { if (!['id', 'name', 'stepBackup', 'srcIdx'].includes(k)) delete c[k]; });
   const type = guessElecType(c.name), area = isBoardType(type) ? autoBoardArea(c) : null;
   c.type = 'electronics'; c.eol = 'unknown';
   const l = makeElecLine(type, area); if (area) l.auto = true;
@@ -3887,16 +4261,19 @@ function elecNote(c, sel) {
   return wrap('Drawn to scale beside the product: a 4:3 board with ' + (B.length > 1 ? 'the largest board’s area' : 'this area') + ' (times its quantity), 1.6 mm thick.');
 }
 
+function attachElecPlaceholder(comp) {                                       // the 3D board for an electronics card, drawn to size and placed beside the product
+  const size = elecBoxSize(comp);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color:0x4A6FA5, roughness:.85, metalness:0 }));
+  mesh.userData.elecBoard = true;
+  scene.add(mesh);
+  meshMap[comp.id] = { obj3d:mesh, center:new THREE.Vector3(), bboxSize:size.clone() };
+  placeElecBeside(comp);
+}
 function addElectronicsComp() {
   const id = uid();
   const comp = { id, type:'electronics', name:'Electronics', elec_lines:[makeElecLine(Object.keys(ELECTRONICS_DB)[0])], eol:'unknown' };
   components.push(comp);
-  const size = elecBoxSize(comp);                                            // drawn at the real board size
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color:0x4A6FA5, roughness:.85, metalness:0 }));
-  mesh.userData.elecBoard = true;
-  scene.add(mesh);
-  meshMap[id] = { obj3d:mesh, center:new THREE.Vector3(), bboxSize:size.clone() };
-  placeElecBeside(comp);
+  attachElecPlaceholder(comp);
   applyExplode(explodeAmount);
   fullRender();
   selectedId = id; renderCards(); rebuildLabels3D();
@@ -3958,6 +4335,8 @@ function wireElecCard(c) {
   el.querySelectorAll('.elec-add-btn').forEach(n => n.addEventListener('click', e => { e.stopPropagation(); addElecLine(c.id); }));
 }
 
+
+window.__persistInit = initPersistence();
 </script>
 
 <!-- ── COMPARE OVERLAY ──────────────────────────────────────────── -->
@@ -4061,6 +4440,12 @@ function wireElecCard(c) {
       <div class="src-block-sub">Material carbon: packaging and bio-based</div>
       <div class="src-block-title">Added from published sources</div>
       <p>Corrugated board <code>0.784</code>: FEFCO, cradle-to-gate, converting included. Cartonboard <code>0.854</code>: Pro Carton 2025 carbon footprint report, cradle to converter's gate. LDPE film <code>2.13</code>: PlasticsEurope eco-profile, resin only. Paper <code>1.283</code>: UK Government GHG Conversion Factors 2025, mixed paper and board, primary production. PHA <code>2.5</code>: roughly the mid-point of the published cradle-to-gate range of about 1.5 to 4.1 <code>kgCO₂e/kg</code> (Kim &amp; Dale 2005, <em>Int J LCA</em>; <em>Green Chemistry</em> 2026). Real PHA values depend on feedstock and fermentation, so ask suppliers for an EPD.</p>
+    </div>
+
+    <div class="src-block">
+      <div class="src-block-sub">Material carbon: recycled and silicone</div>
+      <div class="src-block-title">Added from published sources</div>
+      <p>Recycled HDPE, polypropylene and LDPE film are the virgin figure scaled by the ratio of the UK Government GHG Conversion Factors for closed-loop (recycled) to primary material, both including forming: HDPE <code>0.76</code> (2,351 against 3,095 kgCO₂e/t), polypropylene <code>0.42</code> (1,313 against 3,105), LDPE <code>0.37</code> (1,098 against 2,965). Forming sits in both figures, so the ratio is conservative. The UK method changed in 2024, so these will move. Recycled PET is left out until a matching current pair is published. Recycled copper <code>0.629</code>: Montanwerke Brixlegg, 100% scrap cathode, verified to ISO 14067. The industry average for copper cathode is <code>3.97</code> (International Copper Association) and secondary copper typically ranges from about 0.2 to 1.9. Recycled stainless steel <code>1.6</code>: Outokumpu's 2025 average product carbon footprint at about 97% recycled content, supplier-reported; the global average is about 7.3 (CRU and worldstainless, via Outokumpu). Silicone rubber <code>5.79</code>: Kunz, Salahudeen &amp; Mej&iacute;a, <em>Green Chemistry</em> 2026 (cradle-to-gate, RTV-1 sealant), alongside a database figure of 7.27 for a silicone sealing compound. Real values depend on grade and supplier.</p>
     </div>
 
     <div class="src-block">
